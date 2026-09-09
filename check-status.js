@@ -1,8 +1,9 @@
 const https = require("https");
 
 const FIREBASE_DB_URL = process.env.FIREBASE_DB_URL;
-const ONESIGNAL_APP_ID = process.env.ONESIGNAL_APP_ID;
-const ONESIGNAL_REST_KEY = process.env.ONESIGNAL_REST_KEY;
+const GREEN_API_INSTANCE = process.env.GREEN_API_INSTANCE;
+const GREEN_API_TOKEN = process.env.GREEN_API_TOKEN;
+const WHATSAPP_GROUP_ID = process.env.WHATSAPP_GROUP_ID;
 
 function httpRequest(url, options, data) {
   return new Promise((resolve, reject) => {
@@ -17,6 +18,21 @@ function httpRequest(url, options, data) {
   });
 }
 
+async function sendWhatsAppGroupMessage(machineId) {
+  const url = `https://api.green-api.com/waInstance${GREEN_API_INSTANCE}/sendMessage/${GREEN_API_TOKEN}`;
+  const payload = JSON.stringify({
+    chatId: WHATSAPP_GROUP_ID,
+    message: `🧺 *LAVANDERIA*\n\nLa macchina *${machineId}* ha terminato il ciclo ed è ora *LIBERA* per il prossimo utilizzo!`
+  });
+
+  return httpRequest(url, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    }
+  }, payload);
+}
+
 async function run() {
   try {
     const res = await httpRequest(`${FIREBASE_DB_URL}/machines.json`, { method: "GET" });
@@ -25,35 +41,27 @@ async function run() {
 
     for (const [id, data] of Object.entries(machines)) {
       if (data && data.status === "busy" && data.busyUntil <= now) {
-        console.log(`Macchina ${id} ha terminato. Invio notifica...`);
+        console.log(`Macchina ${id} ha terminato. Invio avviso al gruppo WhatsApp...`);
 
-        const payload = JSON.stringify({
-          app_id: ONESIGNAL_APP_ID,
-          contents: { it: `La macchina ${id} ha terminato il ciclo ed è libera!`, en: `Machine ${id} is now free!` },
-          headings: { it: "🧺 Lavanderia", en: "🧺 Laundry" },
-          filters: [{ field: "tag", key: `waiting_${id}`, relation: "=", value: "true" }]
-        });
+        try {
+          await sendWhatsAppGroupMessage(id);
+          console.log(`Messaggio inviato con successo nel gruppo per la macchina ${id}.`);
+        } catch (err) {
+          console.error("Errore invio messaggio WhatsApp:", err);
+        }
 
-        await httpRequest("https://onesignal.com/api/v1/notifications", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "Authorization": `Basic ${ONESIGNAL_REST_KEY}`
-          }
-        }, payload);
-
-        // Resetta lo stato nel database
+        // Resetta lo stato della macchina nel database su Libera
         const resetPayload = JSON.stringify({ status: "free", busyUntil: 0 });
         await httpRequest(`${FIREBASE_DB_URL}/machines/${id}.json`, {
           method: "PUT",
           headers: { "Content-Type": "application/json" }
         }, resetPayload);
 
-        console.log(`Macchina ${id} resettata.`);
+        console.log(`Macchina ${id} resettata su Firebase.`);
       }
     }
   } catch (err) {
-    console.error("Errore esecuzione:", err);
+    console.error("Errore esecuzione controllo:", err);
   }
 }
 
