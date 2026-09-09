@@ -24,14 +24,6 @@
     const FIREBASE_DB_URL = "https://lavanderia-preziosina-default-rtdb.europe-west1.firebasedatabase.app/";
     const ONESIGNAL_ID = "517fc901-ec72-43cd-8560-976c7fe9e7d9";
 
-    firebase.initializeApp({ databaseURL: FIREBASE_DB_URL });
-    const db = firebase.database();
-
-    window.OneSignalDeferred = window.OneSignalDeferred || [];
-    OneSignalDeferred.push(async function(OneSignal) {
-      await OneSignal.init({ appId: ONESIGNAL_ID });
-    });
-
     const MACHINES = [
       { id: "L1", name: "Lavatrice 1" },
       { id: "L2", name: "Lavatrice 2" },
@@ -42,87 +34,150 @@
     ];
 
     let state = {};
+    let currentUIState = {}; // Tiene traccia dello stato renderizzato (busy o free)
+    let db = null;
 
-    db.ref("machines").on("value", (snapshot) => {
-      state = snapshot.val() || {};
-      render();
-    });
+    try {
+      if (FIREBASE_DB_URL && !FIREBASE_DB_URL.includes("INSERISCI_QUI")) {
+        firebase.initializeApp({ databaseURL: FIREBASE_DB_URL });
+        db = firebase.database();
+        db.ref("machines").on("value", (snapshot) => {
+          state = snapshot.val() || {};
+          syncUI();
+        });
+      }
+    } catch (e) {
+      console.error("Errore Firebase:", e);
+    }
 
-    setInterval(render, 1000);
+    try {
+      if (ONESIGNAL_ID && !ONESIGNAL_ID.includes("INSERISCI_QUI")) {
+        window.OneSignalDeferred = window.OneSignalDeferred || [];
+        OneSignalDeferred.push(async function(OneSignal) {
+          await OneSignal.init({ appId: ONESIGNAL_ID });
+        });
+      }
+    } catch (e) {
+      console.error("Errore OneSignal:", e);
+    }
 
-    function render() {
-      const container = document.getElementById("grid");
+    function syncUI() {
       const now = Date.now();
 
-      container.innerHTML = MACHINES.map(m => {
+      MACHINES.forEach(m => {
         const data = state[m.id] || { busyUntil: 0 };
         const isBusy = data.busyUntil > now;
-        const remainingSec = Math.max(0, Math.floor((data.busyUntil - now) / 1000));
-        
-        const h = Math.floor(remainingSec / 3600);
-        const min = Math.floor((remainingSec % 3600) / 60);
-        const sec = remainingSec % 60;
+        const previousState = currentUIState[m.id];
 
-        // Formattazione orario HH:MM:SS
-        const timeDisplay = h > 0 
-          ? `${h}:${min < 10 ? '0' : ''}${min}:${sec < 10 ? '0' : ''}${sec}`
-          : `${min}:${sec < 10 ? '0' : ''}${sec}`;
+        // Ridisegna la card solo se lo stato cambia da Libera a Occupata o viceversa
+        if (previousState !== isBusy) {
+          currentUIState[m.id] = isBusy;
+          renderCard(m, isBusy, data.busyUntil);
+        }
+      });
+      updateTimersOnly();
+    }
+
+    function renderCard(m, isBusy, busyUntil) {
+      let cardEl = document.getElementById(`card-${m.id}`);
+      if (!cardEl) {
+        cardEl = document.createElement("div");
+        cardEl.id = `card-${m.id}`;
+        document.getElementById("grid").appendChild(cardEl);
+      }
+
+      if (isBusy) {
+        const endDate = new Date(busyUntil);
+        const endHour = String(endDate.getHours()).padStart(2, '0');
+        const endMin = String(endDate.getMinutes()).padStart(2, '0');
+
+        cardEl.className = "bg-slate-800 border-2 border-amber-500/70 rounded-2xl p-5 shadow-lg flex flex-col justify-between";
+        cardEl.innerHTML = `
+          <div>
+            <div class="flex justify-between items-center mb-2">
+              <span class="text-2xl font-black text-amber-400">${m.id}</span>
+              <span class="px-2.5 py-1 text-xs font-semibold uppercase bg-amber-500/20 text-amber-300 rounded-full">Occupata</span>
+            </div>
+            <p class="text-slate-300 text-sm mb-3">${m.name}</p>
+            <div class="text-center py-3 bg-slate-900/80 rounded-xl mb-4 border border-slate-700/50">
+              <span id="timer-${m.id}" class="text-3xl font-mono font-bold text-white tracking-wider">--:--</span>
+              <span class="text-xs text-slate-400 block mt-1">Termina alle ${endHour}:${endMin}</span>
+            </div>
+          </div>
+          <button onclick="requestNotification('${m.id}')" class="w-full py-2.5 px-3 bg-amber-600 hover:bg-amber-500 active:scale-95 text-white font-medium rounded-xl text-sm transition">
+            🔔 Avvisami quando termina
+          </button>
+        `;
+      } else {
+        cardEl.className = "bg-slate-800 border-2 border-emerald-500/40 rounded-2xl p-5 shadow-lg flex flex-col justify-between";
+        cardEl.innerHTML = `
+          <div>
+            <div class="flex justify-between items-center mb-2">
+              <span class="text-2xl font-black text-emerald-400">${m.id}</span>
+              <span class="px-2.5 py-1 text-xs font-semibold uppercase bg-emerald-500/20 text-emerald-300 rounded-full">Libera</span>
+            </div>
+            <p class="text-slate-300 text-sm mb-4">${m.name}</p>
+            
+            <p class="text-xs text-slate-400 mb-2 font-medium">Imposta durata:</p>
+            <div class="grid grid-cols-2 gap-2 mb-4">
+              <div>
+                <label class="text-[10px] text-slate-400 uppercase tracking-wider block mb-1">Ore</label>
+                <input id="hours-${m.id}" type="number" min="0" max="12" value="0" class="w-full bg-slate-900 border border-slate-700 rounded-xl text-center text-base py-2 font-semibold text-white focus:outline-none focus:border-emerald-500">
+              </div>
+              <div>
+                <label class="text-[10px] text-slate-400 uppercase tracking-wider block mb-1">Minuti</label>
+                <input id="mins-${m.id}" type="number" min="0" max="59" placeholder="45" class="w-full bg-slate-900 border border-slate-700 rounded-xl text-center text-base py-2 font-semibold text-white focus:outline-none focus:border-emerald-500">
+              </div>
+            </div>
+          </div>
+
+          <button onclick="startCycle('${m.id}')" class="w-full bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white font-bold rounded-xl py-2.5 text-sm transition shadow-md">
+            ▶ Avvia Ciclo
+          </button>
+        `;
+      }
+    }
+
+    // Aggiorna solo i numeri a video ogni secondo, SENZA toccare le caselle input
+    function updateTimersOnly() {
+      const now = Date.now();
+
+      MACHINES.forEach(m => {
+        const data = state[m.id] || { busyUntil: 0 };
+        const isBusy = data.busyUntil > now;
+
+        // Se il tempo è scaduto mentre eravamo sulla schermata, cambia stato
+        if (currentUIState[m.id] && !isBusy) {
+          syncUI();
+          return;
+        }
 
         if (isBusy) {
-          return `
-            <div class="bg-slate-800 border-2 border-amber-500/70 rounded-2xl p-5 shadow-lg flex flex-col justify-between">
-              <div>
-                <div class="flex justify-between items-center mb-2">
-                  <span class="text-2xl font-black text-amber-400">${m.id}</span>
-                  <span class="px-2.5 py-1 text-xs font-semibold uppercase bg-amber-500/20 text-amber-300 rounded-full">Occupata</span>
-                </div>
-                <p class="text-slate-300 text-sm mb-3">${m.name}</p>
-                <div class="text-center py-3 bg-slate-900/80 rounded-xl mb-4 border border-slate-700/50">
-                  <span class="text-3xl font-mono font-bold text-white tracking-wider">${timeDisplay}</span>
-                  <span class="text-xs text-slate-400 block mt-0.5">tempo rimanente</span>
-                </div>
-              </div>
-              <button onclick="requestNotification('${m.id}')" class="w-full py-2.5 px-3 bg-amber-600 hover:bg-amber-500 active:scale-95 text-white font-medium rounded-xl text-sm transition">
-                🔔 Avvisami quando termina
-              </button>
-            </div>
-          `;
-        } else {
-          return `
-            <div class="bg-slate-800 border-2 border-emerald-500/40 rounded-2xl p-5 shadow-lg flex flex-col justify-between">
-              <div>
-                <div class="flex justify-between items-center mb-2">
-                  <span class="text-2xl font-black text-emerald-400">${m.id}</span>
-                  <span class="px-2.5 py-1 text-xs font-semibold uppercase bg-emerald-500/20 text-emerald-300 rounded-full">Libera</span>
-                </div>
-                <p class="text-slate-300 text-sm mb-4">${m.name}</p>
-                
-                <p class="text-xs text-slate-400 mb-2 font-medium">Imposta durata lavaggio/asciugatura:</p>
-                <div class="grid grid-cols-2 gap-2 mb-4">
-                  <div>
-                    <label class="text-[10px] text-slate-400 uppercase tracking-wider block mb-1">Ore</label>
-                    <input id="hours-${m.id}" type="number" min="0" max="12" value="0" class="w-full bg-slate-900 border border-slate-700 rounded-xl text-center text-base py-2 font-semibold text-white focus:outline-none focus:border-emerald-500">
-                  </div>
-                  <div>
-                    <label class="text-[10px] text-slate-400 uppercase tracking-wider block mb-1">Minuti</label>
-                    <input id="mins-${m.id}" type="number" min="0" max="59" placeholder="es. 45" class="w-full bg-slate-900 border border-slate-700 rounded-xl text-center text-base py-2 font-semibold text-white focus:outline-none focus:border-emerald-500">
-                  </div>
-                </div>
-              </div>
+          const timerEl = document.getElementById(`timer-${m.id}`);
+          if (timerEl) {
+            const remainingSec = Math.max(0, Math.floor((data.busyUntil - now) / 1000));
+            const h = Math.floor(remainingSec / 3600);
+            const min = Math.floor((remainingSec % 3600) / 60);
+            const sec = remainingSec % 60;
 
-              <button onclick="startCycle('${m.id}')" class="w-full bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white font-bold rounded-xl py-2.5 text-sm transition shadow-md">
-                ▶ Avvia Ciclo
-              </button>
-            </div>
-          `;
+            timerEl.innerText = h > 0 
+              ? `${h}:${String(min).padStart(2, '0')}:${String(sec).padStart(2, '0')}`
+              : `${min}:${String(sec).padStart(2, '0')}`;
+          }
         }
-      }).join('');
+      });
     }
 
     function startCycle(id) {
-      const h = parseInt(document.getElementById(`hours-${id}`).value) || 0;
-      const m = parseInt(document.getElementById(`mins-${id}`).value) || 0;
-
+      if (!db) {
+        alert("Errore di connessione al database.");
+        return;
+      }
+      const hInput = document.getElementById(`hours-${id}`);
+      const mInput = document.getElementById(`mins-${id}`);
+      
+      const h = parseInt(hInput ? hInput.value : 0) || 0;
+      const m = parseInt(mInput ? mInput.value : 0) || 0;
       const totalMinutes = (h * 60) + m;
 
       if (totalMinutes <= 0) {
@@ -138,12 +193,21 @@
     }
 
     async function requestNotification(id) {
+      if (!window.OneSignalDeferred) {
+        alert("OneSignal non è ancora pronto.");
+        return;
+      }
       OneSignalDeferred.push(async function(OneSignal) {
         await OneSignal.Slidedown.promptPush();
         await OneSignal.User.addTag(`waiting_${id}`, "true");
-        alert(`Fatto! Riceverai una notifica sul tuo dispositivo appena ${id} finisce.`);
+        alert(`Perfetto! Riceverai una notifica non appena ${id} sarà di nuovo libera.`);
       });
     }
+
+    // Inizializza subito le card
+    syncUI();
+    // Aggiorna solo i countdown ogni secondo
+    setInterval(updateTimersOnly, 1000);
   </script>
 </body>
 </html>
