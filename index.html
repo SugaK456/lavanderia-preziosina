@@ -192,22 +192,27 @@
       });
     }
 
-    async function requestNotification(id) {
+async function requestNotification(id) {
       if (!window.OneSignalDeferred) {
-        alert("OneSignal non è ancora pronto.");
+        alert("OneSignal non è ancora inizializzato. Ricarica la pagina.");
         return;
       }
+
       OneSignalDeferred.push(async function(OneSignal) {
-        await OneSignal.Slidedown.promptPush();
-        await OneSignal.User.addTag(`waiting_${id}`, "true");
-        alert(`Perfetto! Riceverai una notifica non appena ${id} sarà di nuovo libera.`);
+        try {
+          // Mostra il prompt nativo del browser o la slide di richiesta
+          await OneSignal.Slidedown.promptPush();
+
+          // Iscrive l'utente al servizio Push
+          await OneSignal.User.PushSubscription.optIn();
+
+          // Aggiunge il tag specifico per la macchina
+          await OneSignal.User.addTag(`waiting_${id}`, "true");
+
+          alert(`Notifiche registrate con successo per ${id}!`);
+        } catch (err) {
+          console.error("Errore OneSignal:", err);
+          alert("Errore durante l'attivazione: " + err.message);
+        }
       });
     }
-
-    // Inizializza subito le card
-    syncUI();
-    // Aggiorna solo i countdown ogni secondo
-    setInterval(updateTimersOnly, 1000);
-  </script>
-</body>
-</html>
