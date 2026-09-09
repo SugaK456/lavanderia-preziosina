@@ -1,8 +1,6 @@
 name: Controllo Lavanderia
 
 on:
-  schedule:
-    - cron: '* * * * *'
   workflow_dispatch:
 
 jobs:
