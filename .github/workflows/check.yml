@@ -2,7 +2,6 @@ name: Controllo Lavanderia
 
 on:
   schedule:
-    # Controlla ogni minuto
     - cron: '* * * * *'
   workflow_dispatch:
 
@@ -21,6 +20,7 @@ jobs:
       - name: Esegui controllo macchine
         env:
           FIREBASE_DB_URL: ${{ secrets.FIREBASE_DB_URL }}
-          ONESIGNAL_APP_ID: ${{ secrets.ONESIGNAL_APP_ID }}
-          ONESIGNAL_REST_KEY: ${{ secrets.ONESIGNAL_REST_KEY }}
+          GREEN_API_INSTANCE: ${{ secrets.GREEN_API_INSTANCE }}
+          GREEN_API_TOKEN: ${{ secrets.GREEN_API_TOKEN }}
+          WHATSAPP_GROUP_ID: ${{ secrets.WHATSAPP_GROUP_ID }}
         run: node check-status.js
