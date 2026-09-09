@@ -5,7 +5,6 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Stato Lavanderia</title>
   <script src="https://cdn.tailwindcss.com"></script>
-  <script src="https://cdn.onesignal.com/sdks/web/v16/OneSignalSDK.page.js" defer></script>
   <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
 </head>
@@ -16,14 +15,12 @@
       <p class="text-slate-400 text-sm">Aggiornamento in tempo reale • Imposta la durata esatta del ciclo</p>
     </header>
 
-    <!-- Griglia Macchine -->
     <div id="grid" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5"></div>
   </div>
 
   <script>
-    // --- LE TUE CONFIGURAZIONI ---
-    const FIREBASE_DB_URL = "https://lavanderia-preziosina-default-rtdb.europe-west1.firebasedatabase.app/";
-    const ONESIGNAL_ID = "517fc901-ec72-43cd-8560-976c7fe9e7d9";
+    // --- IL TUO DATABASE FIREBASE ---
+    const FIREBASE_DB_URL = "https://lavanderia-preziosina-default-rtdb.europe-west1.firebasedatabase.app";
 
     const MACHINES = [
       { id: "L1", name: "Lavatrice 1" },
@@ -37,7 +34,7 @@
     let state = {};
     let db = null;
 
-    // 1. Disegna SUBITO la griglia iniziale a video per non lasciare mai lo schermo vuoto
+    // 1. Disegna subito la struttura a schermo
     function buildInitialGrid() {
       const container = document.getElementById("grid");
       if (!container) return;
@@ -46,21 +43,23 @@
         <div id="card-${m.id}" class="bg-slate-800 border-2 border-emerald-500/40 rounded-2xl p-5 shadow-lg flex flex-col justify-between">
           <div>
             <div class="flex justify-between items-center mb-2">
-              <span class="text-2xl font-black text-emerald-400">${m.id}</span>
+              <span id="title-${m.id}" class="text-2xl font-black text-emerald-400">${m.id}</span>
               <span id="badge-${m.id}" class="px-2.5 py-1 text-xs font-semibold uppercase bg-emerald-500/20 text-emerald-300 rounded-full">Libera</span>
             </div>
             <p class="text-slate-300 text-sm mb-4">${m.name}</p>
             
+            <!-- Box quando occupata -->
             <div id="busy-box-${m.id}" class="hidden">
               <div class="text-center py-3 bg-slate-900/80 rounded-xl mb-4 border border-slate-700/50">
                 <span id="timer-${m.id}" class="text-3xl font-mono font-bold text-white tracking-wider">--:--</span>
-                <span id="end-label-${m.id}" class="text-xs text-slate-400 block mt-1">Calcolo in corso...</span>
+                <span id="end-label-${m.id}" class="text-xs text-slate-400 block mt-1">Calcolo...</span>
               </div>
-              <button onclick="requestNotification('${m.id}')" class="w-full py-2.5 px-3 bg-amber-600 hover:bg-amber-500 active:scale-95 text-white font-medium rounded-xl text-sm transition">
-                🔔 Avvisami quando termina
+              <button onclick="addCalendarReminder('${m.id}')" class="w-full py-2.5 px-3 bg-indigo-600 hover:bg-indigo-500 active:scale-95 text-white font-medium rounded-xl text-sm transition flex items-center justify-center gap-2 shadow-md">
+                ⏰ Imposta Sveglia / Promemoria
               </button>
             </div>
 
+            <!-- Box quando libera -->
             <div id="free-box-${m.id}">
               <p class="text-xs text-slate-400 mb-2 font-medium">Imposta durata:</p>
               <div class="grid grid-cols-2 gap-2 mb-4">
@@ -82,42 +81,25 @@
       `).join('');
     }
 
-    // 2. Inizializzazione OneSignal compatibile con GitHub Pages
+    // 2. Connessione a Firebase
     try {
-      if (ONESIGNAL_ID && !ONESIGNAL_ID.includes("INSERISCI_QUI")) {
-        window.OneSignalDeferred = window.OneSignalDeferred || [];
-        OneSignalDeferred.push(async function(OneSignal) {
-          await OneSignal.init({
-            appId: ONESIGNAL_ID,
-            serviceWorkerParam: { scope: "/lavanderia-preziosina/" },
-            serviceWorkerPath: "/lavanderia-preziosina/OneSignalSDKWorker.js"
-          });
-        });
-      }
+      firebase.initializeApp({ databaseURL: FIREBASE_DB_URL });
+      db = firebase.database();
+      db.ref("machines").on("value", (snapshot) => {
+        state = snapshot.val() || {};
+        updateUI();
+      });
     } catch (e) {
-      console.error("Errore setup OneSignal:", e);
+      console.error("Errore Firebase:", e);
     }
 
-    // 3. Connessione a Firebase
-    try {
-      if (FIREBASE_DB_URL && !FIREBASE_DB_URL.includes("INSERISCI_QUI")) {
-        firebase.initializeApp({ databaseURL: FIREBASE_DB_URL });
-        db = firebase.database();
-        db.ref("machines").on("value", (snapshot) => {
-          state = snapshot.val() || {};
-          updateUI();
-        });
-      }
-    } catch (e) {
-      console.error("Errore connessione Firebase:", e);
-    }
-
-    // 4. Aggiorna lo stato visivo delle card senza ricostruire i campi di input
+    // 3. Sincronizzazione grafica
     function updateUI() {
       const now = Date.now();
 
       MACHINES.forEach(m => {
         const card = document.getElementById(`card-${m.id}`);
+        const title = document.getElementById(`title-${m.id}`);
         const badge = document.getElementById(`badge-${m.id}`);
         const busyBox = document.getElementById(`busy-box-${m.id}`);
         const freeBox = document.getElementById(`free-box-${m.id}`);
@@ -131,6 +113,7 @@
 
         if (isBusy) {
           card.className = "bg-slate-800 border-2 border-amber-500/70 rounded-2xl p-5 shadow-lg flex flex-col justify-between";
+          title.className = "text-2xl font-black text-amber-400";
           badge.className = "px-2.5 py-1 text-xs font-semibold uppercase bg-amber-500/20 text-amber-300 rounded-full";
           badge.innerText = "Occupata";
           
@@ -154,6 +137,7 @@
           }
         } else {
           card.className = "bg-slate-800 border-2 border-emerald-500/40 rounded-2xl p-5 shadow-lg flex flex-col justify-between";
+          title.className = "text-2xl font-black text-emerald-400";
           badge.className = "px-2.5 py-1 text-xs font-semibold uppercase bg-emerald-500/20 text-emerald-300 rounded-full";
           badge.innerText = "Libera";
 
@@ -173,7 +157,7 @@
       const totalMinutes = (h * 60) + m;
 
       if (totalMinutes <= 0) {
-        alert("Inserisci almeno 1 minuto per avviare il ciclo!");
+        alert("Inserisci almeno 1 minuto!");
         return;
       }
 
@@ -184,31 +168,55 @@
       });
     }
 
-    async function requestNotification(id) {
-      try {
-        if (!window.OneSignalDeferred) {
-          alert("OneSignal non è ancora pronto.");
-          return;
-        }
+    // 4. Genera al volo l'evento con sveglia/notifica nel calendario del telefono
+    function addCalendarReminder(id) {
+      const data = state[id];
+      if (!data || !data.busyUntil) return;
 
-        OneSignalDeferred.push(async function(OneSignal) {
-          // Richiede abilitazione notifiche
-          await OneSignal.Slidedown.promptPush();
-          // Iscrive il dispositivo al canale push
-          await OneSignal.User.PushSubscription.optIn();
-          // Assegna il tag
-          await OneSignal.User.addTag(`waiting_${id}`, "true");
-          alert(`Notifiche attivate! Riceverai un avviso appena ${id} sarà libera.`);
-        });
-      } catch (err) {
-        alert("Errore abilitazione notifiche: " + err.message);
-      }
+      const endDate = new Date(data.busyUntil);
+      // L'evento dura 10 minuti a partire dalla fine del ciclo
+      const eventEnd = new Date(endDate.getTime() + (10 * 60 * 1000));
+
+      const formatICSDate = (d) => {
+        return d.toISOString().replace(/[-:]/g, "").split(".")[0] + "Z";
+      };
+
+      const title = `🧺 Lavanderia: ${id} è libera!`;
+      const description = `La macchina ${id} ha terminato il ciclo ed è pronta per essere usata.`;
+
+      // File standard iCalendar con allarme integrato (suona all'orario dell'evento)
+      const icsContent = [
+        "BEGIN:VCALENDAR",
+        "VERSION:2.0",
+        "PRODID:-//Lavanderia//Condivisa//IT",
+        "CALSCALE:GREGORIAN",
+        "BEGIN:VEVENT",
+        `UID:laundry-${id}-${endDate.getTime()}@lavanderia`,
+        `DTSTAMP:${formatICSDate(new Date())}`,
+        `DTSTART:${formatICSDate(endDate)}`,
+        `DTEND:${formatICSDate(eventEnd)}`,
+        `SUMMARY:${title}`,
+        `DESCRIPTION:${description}`,
+        "BEGIN:VALARM",
+        "TRIGGER:PT0M",
+        "ACTION:DISPLAY",
+        `DESCRIPTION:Promemoria: ${title}`,
+        "END:VALARM",
+        "END:VEVENT",
+        "END:VCALENDAR"
+      ].join("\r\n");
+
+      // Crea e scarica/apre il file .ics direttamente nel sistema operativo
+      const blob = new Blob([icsContent], { type: "text/calendar;charset=utf-8" });
+      const link = document.createElement("a");
+      link.href = window.URL.createObjectURL(blob);
+      link.setAttribute("download", `avviso_${id}.ics`);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
     }
 
-    // Costruisce la griglia immediatamente all'apertura della pagina
     buildInitialGrid();
-
-    // Aggiorna lo stato dei timer ogni secondo
     setInterval(updateUI, 1000);
   </script>
 </body>
