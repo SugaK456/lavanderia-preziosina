@@ -52,12 +52,12 @@
                 <span id="end-label-${m.id}" class="text-xs text-slate-400 block mt-1">Calcolo...</span>
               </div>
               <div class="bg-emerald-950/40 border border-emerald-500/30 rounded-xl p-3 text-center">
-                <span class="text-xs text-emerald-300 font-medium">💬 Il bot avviserà sul gruppo WhatsApp quando sarà libera</span>
+                <span class="text-xs text-emerald-300 font-medium">💬 Il bot avviserà sul gruppo WhatsApp (+15 min ritiro inclusi)</span>
               </div>
             </div>
 
             <div id="free-box-${m.id}">
-              <p class="text-xs text-slate-400 mb-2 font-medium">Imposta durata:</p>
+              <p class="text-xs text-slate-400 mb-2 font-medium">Durata programma (+15 min svuotamento inclusi):</p>
               <div class="grid grid-cols-2 gap-2 mb-4">
                 <div>
                   <label class="text-[10px] text-slate-400 uppercase tracking-wider block mb-1">Ore</label>
@@ -148,12 +148,16 @@
       }
       const h = parseInt(document.getElementById(`hours-${id}`).value) || 0;
       const m = parseInt(document.getElementById(`mins-${id}`).value) || 0;
-      const totalMinutes = (h * 60) + m;
+      const inputMinutes = (h * 60) + m;
 
-      if (totalMinutes <= 0) {
+      if (inputMinutes <= 0) {
         alert("Inserisci almeno 1 minuto per avviare il ciclo!");
         return;
       }
+
+      // Durata impostata + 15 minuti di margine per lo svuotamento
+      const BUFFER_MINUTES = 15;
+      const totalMinutes = inputMinutes + BUFFER_MINUTES;
 
       const busyUntil = Date.now() + (totalMinutes * 60 * 1000);
       db.ref(`machines/${id}`).set({
