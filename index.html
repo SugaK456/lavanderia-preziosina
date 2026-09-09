@@ -12,14 +12,13 @@
   <div class="max-w-4xl mx-auto">
     <header class="text-center mb-8">
       <h1 class="text-3xl font-extrabold tracking-tight text-white mb-2">🧺 Stato Lavanderia</h1>
-      <p class="text-slate-400 text-sm">Aggiornamento in tempo reale • Imposta la durata esatta del ciclo</p>
+      <p class="text-slate-400 text-sm">Aggiornamento in tempo reale • Notifica automatica sul gruppo WhatsApp a fine ciclo</p>
     </header>
 
     <div id="grid" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5"></div>
   </div>
 
   <script>
-    // --- IL TUO DATABASE FIREBASE ---
     const FIREBASE_DB_URL = "https://lavanderia-preziosina-default-rtdb.europe-west1.firebasedatabase.app";
 
     const MACHINES = [
@@ -34,7 +33,6 @@
     let state = {};
     let db = null;
 
-    // 1. Disegna subito la struttura a schermo
     function buildInitialGrid() {
       const container = document.getElementById("grid");
       if (!container) return;
@@ -48,18 +46,16 @@
             </div>
             <p class="text-slate-300 text-sm mb-4">${m.name}</p>
             
-            <!-- Box quando occupata -->
             <div id="busy-box-${m.id}" class="hidden">
               <div class="text-center py-3 bg-slate-900/80 rounded-xl mb-4 border border-slate-700/50">
                 <span id="timer-${m.id}" class="text-3xl font-mono font-bold text-white tracking-wider">--:--</span>
                 <span id="end-label-${m.id}" class="text-xs text-slate-400 block mt-1">Calcolo...</span>
               </div>
-              <button onclick="addCalendarReminder('${m.id}')" class="w-full py-2.5 px-3 bg-indigo-600 hover:bg-indigo-500 active:scale-95 text-white font-medium rounded-xl text-sm transition flex items-center justify-center gap-2 shadow-md">
-                ⏰ Imposta Sveglia / Promemoria
-              </button>
+              <div class="bg-emerald-950/40 border border-emerald-500/30 rounded-xl p-3 text-center">
+                <span class="text-xs text-emerald-300 font-medium">💬 Il bot avviserà sul gruppo WhatsApp quando sarà libera</span>
+              </div>
             </div>
 
-            <!-- Box quando libera -->
             <div id="free-box-${m.id}">
               <p class="text-xs text-slate-400 mb-2 font-medium">Imposta durata:</p>
               <div class="grid grid-cols-2 gap-2 mb-4">
@@ -81,7 +77,6 @@
       `).join('');
     }
 
-    // 2. Connessione a Firebase
     try {
       firebase.initializeApp({ databaseURL: FIREBASE_DB_URL });
       db = firebase.database();
@@ -93,7 +88,6 @@
       console.error("Errore Firebase:", e);
     }
 
-    // 3. Sincronizzazione grafica
     function updateUI() {
       const now = Date.now();
 
@@ -149,7 +143,7 @@
 
     function startCycle(id) {
       if (!db) {
-        alert("Errore di connessione a Firebase.");
+        alert("Errore database.");
         return;
       }
       const h = parseInt(document.getElementById(`hours-${id}`).value) || 0;
@@ -157,7 +151,7 @@
       const totalMinutes = (h * 60) + m;
 
       if (totalMinutes <= 0) {
-        alert("Inserisci almeno 1 minuto!");
+        alert("Inserisci almeno 1 minuto per avviare il ciclo!");
         return;
       }
 
@@ -166,54 +160,6 @@
         busyUntil: busyUntil,
         status: "busy"
       });
-    }
-
-    // 4. Genera al volo l'evento con sveglia/notifica nel calendario del telefono
-    function addCalendarReminder(id) {
-      const data = state[id];
-      if (!data || !data.busyUntil) return;
-
-      const endDate = new Date(data.busyUntil);
-      // L'evento dura 10 minuti a partire dalla fine del ciclo
-      const eventEnd = new Date(endDate.getTime() + (10 * 60 * 1000));
-
-      const formatICSDate = (d) => {
-        return d.toISOString().replace(/[-:]/g, "").split(".")[0] + "Z";
-      };
-
-      const title = `🧺 Lavanderia: ${id} è libera!`;
-      const description = `La macchina ${id} ha terminato il ciclo ed è pronta per essere usata.`;
-
-      // File standard iCalendar con allarme integrato (suona all'orario dell'evento)
-      const icsContent = [
-        "BEGIN:VCALENDAR",
-        "VERSION:2.0",
-        "PRODID:-//Lavanderia//Condivisa//IT",
-        "CALSCALE:GREGORIAN",
-        "BEGIN:VEVENT",
-        `UID:laundry-${id}-${endDate.getTime()}@lavanderia`,
-        `DTSTAMP:${formatICSDate(new Date())}`,
-        `DTSTART:${formatICSDate(endDate)}`,
-        `DTEND:${formatICSDate(eventEnd)}`,
-        `SUMMARY:${title}`,
-        `DESCRIPTION:${description}`,
-        "BEGIN:VALARM",
-        "TRIGGER:PT0M",
-        "ACTION:DISPLAY",
-        `DESCRIPTION:Promemoria: ${title}`,
-        "END:VALARM",
-        "END:VEVENT",
-        "END:VCALENDAR"
-      ].join("\r\n");
-
-      // Crea e scarica/apre il file .ics direttamente nel sistema operativo
-      const blob = new Blob([icsContent], { type: "text/calendar;charset=utf-8" });
-      const link = document.createElement("a");
-      link.href = window.URL.createObjectURL(blob);
-      link.setAttribute("download", `avviso_${id}.ics`);
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
     }
 
     buildInitialGrid();
