@@ -5,12 +5,14 @@ const GREEN_API_INSTANCE = process.env.GREEN_API_INSTANCE;
 const GREEN_API_TOKEN = process.env.GREEN_API_TOKEN;
 const WHATSAPP_GROUP_ID = process.env.WHATSAPP_GROUP_ID;
 
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
 function httpRequest(url, options, data) {
   return new Promise((resolve, reject) => {
     const req = https.request(url, options, (res) => {
       let body = "";
       res.on("data", (chunk) => (body += chunk));
-      res.on("end", () => resolve(body));
+      res.on("end", () => resolve({ status: res.statusCode, data: body }));
     });
     req.on("error", reject);
     if (data) req.write(data);
@@ -36,32 +38,35 @@ async function sendWhatsAppGroupMessage(machineId) {
 async function run() {
   try {
     const res = await httpRequest(`${FIREBASE_DB_URL}/machines.json`, { method: "GET" });
-    const machines = JSON.parse(res) || {};
+    const machines = JSON.parse(res.data) || {};
     const now = Date.now();
 
     for (const [id, data] of Object.entries(machines)) {
       if (data && data.status === "busy" && data.busyUntil <= now) {
-        console.log(`Macchina ${id} ha terminato. Invio avviso al gruppo WhatsApp...`);
+        console.log(`Elaborazione macchina ${id}...`);
 
-        try {
-          await sendWhatsAppGroupMessage(id);
-          console.log(`Messaggio inviato con successo nel gruppo per la macchina ${id}.`);
-        } catch (err) {
-          console.error("Errore invio messaggio WhatsApp:", err);
-        }
-
-        // Resetta lo stato della macchina nel database su Libera
+        // 1. Reset immediato dello stato su Firebase
         const resetPayload = JSON.stringify({ status: "free", busyUntil: 0 });
         await httpRequest(`${FIREBASE_DB_URL}/machines/${id}.json`, {
           method: "PUT",
           headers: { "Content-Type": "application/json" }
         }, resetPayload);
-
         console.log(`Macchina ${id} resettata su Firebase.`);
+
+        // 2. Invio avviso nel gruppo WhatsApp
+        try {
+          const response = await sendWhatsAppGroupMessage(id);
+          console.log(`Stato invio WhatsApp per ${id}:`, response.status, response.data);
+        } catch (err) {
+          console.error(`Errore invio WhatsApp per ${id}:`, err);
+        }
+
+        // 3. Attesa di 3 secondi prima di processare l'eventuale macchina successiva
+        await sleep(3000);
       }
     }
   } catch (err) {
-    console.error("Errore esecuzione controllo:", err);
+    console.error("Errore generale esecuzione:", err);
   }
 }
 
