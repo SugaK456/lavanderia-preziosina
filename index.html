@@ -13,16 +13,16 @@
   <div class="max-w-4xl mx-auto">
     <header class="text-center mb-8">
       <h1 class="text-3xl font-extrabold tracking-tight text-white mb-2">🧺 Stato Lavanderia</h1>
-      <p class="text-slate-400 text-sm">Aggiornamento in tempo reale • Clicca per occupare o ricevere un avviso a fine ciclo</p>
+      <p class="text-slate-400 text-sm">Aggiornamento in tempo reale • Imposta la durata esatta del ciclo</p>
     </header>
 
     <div id="grid" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5"></div>
   </div>
 
   <script>
-    // --- INCOLLA QUI I TUOI DATI ---
-    const FIREBASE_DB_URL = "https://lavanderia-preziosina-default-rtdb.europe-west1.firebasedatabase.app/";
-    const ONESIGNAL_ID = "517fc901-ec72-43cd-8560-976c7fe9e7d9";
+    // --- LE TUE CONFIGURAZIONI ---
+    const FIREBASE_DB_URL = "INSERISCI_QUI_URL_DATABASE_FIREBASE";
+    const ONESIGNAL_ID = "INSERISCI_QUI_APP_ID_ONESIGNAL";
 
     firebase.initializeApp({ databaseURL: FIREBASE_DB_URL });
     const db = firebase.database();
@@ -58,8 +58,15 @@
         const data = state[m.id] || { busyUntil: 0 };
         const isBusy = data.busyUntil > now;
         const remainingSec = Math.max(0, Math.floor((data.busyUntil - now) / 1000));
-        const min = Math.floor(remainingSec / 60);
+        
+        const h = Math.floor(remainingSec / 3600);
+        const min = Math.floor((remainingSec % 3600) / 60);
         const sec = remainingSec % 60;
+
+        // Formattazione orario HH:MM:SS
+        const timeDisplay = h > 0 
+          ? `${h}:${min < 10 ? '0' : ''}${min}:${sec < 10 ? '0' : ''}${sec}`
+          : `${min}:${sec < 10 ? '0' : ''}${sec}`;
 
         if (isBusy) {
           return `
@@ -70,9 +77,9 @@
                   <span class="px-2.5 py-1 text-xs font-semibold uppercase bg-amber-500/20 text-amber-300 rounded-full">Occupata</span>
                 </div>
                 <p class="text-slate-300 text-sm mb-3">${m.name}</p>
-                <div class="text-center py-3 bg-slate-900/70 rounded-xl mb-4">
-                  <span class="text-3xl font-mono font-bold text-white">${min}:${sec < 10 ? '0' : ''}${sec}</span>
-                  <span class="text-xs text-slate-400 block mt-0.5">tempo residuo</span>
+                <div class="text-center py-3 bg-slate-900/80 rounded-xl mb-4 border border-slate-700/50">
+                  <span class="text-3xl font-mono font-bold text-white tracking-wider">${timeDisplay}</span>
+                  <span class="text-xs text-slate-400 block mt-0.5">tempo rimanente</span>
                 </div>
               </div>
               <button onclick="requestNotification('${m.id}')" class="w-full py-2.5 px-3 bg-amber-600 hover:bg-amber-500 active:scale-95 text-white font-medium rounded-xl text-sm transition">
@@ -88,43 +95,53 @@
                   <span class="text-2xl font-black text-emerald-400">${m.id}</span>
                   <span class="px-2.5 py-1 text-xs font-semibold uppercase bg-emerald-500/20 text-emerald-300 rounded-full">Libera</span>
                 </div>
-                <p class="text-slate-300 text-sm mb-3">${m.name}</p>
+                <p class="text-slate-300 text-sm mb-4">${m.name}</p>
                 
-                <p class="text-xs text-slate-400 mb-1.5 font-medium">Avvio rapido:</p>
-                <div class="grid grid-cols-3 gap-2 mb-3">
-                  <button onclick="occupy('${m.id}', 30)" class="py-2 bg-slate-700 hover:bg-emerald-600 active:scale-95 rounded-lg text-xs font-bold transition">30m</button>
-                  <button onclick="occupy('${m.id}', 45)" class="py-2 bg-slate-700 hover:bg-emerald-600 active:scale-95 rounded-lg text-xs font-bold transition">45m</button>
-                  <button onclick="occupy('${m.id}', 60)" class="py-2 bg-slate-700 hover:bg-emerald-600 active:scale-95 rounded-lg text-xs font-bold transition">60m</button>
+                <p class="text-xs text-slate-400 mb-2 font-medium">Imposta durata lavaggio/asciugatura:</p>
+                <div class="grid grid-cols-2 gap-2 mb-4">
+                  <div>
+                    <label class="text-[10px] text-slate-400 uppercase tracking-wider block mb-1">Ore</label>
+                    <input id="hours-${m.id}" type="number" min="0" max="12" value="0" class="w-full bg-slate-900 border border-slate-700 rounded-xl text-center text-base py-2 font-semibold text-white focus:outline-none focus:border-emerald-500">
+                  </div>
+                  <div>
+                    <label class="text-[10px] text-slate-400 uppercase tracking-wider block mb-1">Minuti</label>
+                    <input id="mins-${m.id}" type="number" min="0" max="59" placeholder="es. 45" class="w-full bg-slate-900 border border-slate-700 rounded-xl text-center text-base py-2 font-semibold text-white focus:outline-none focus:border-emerald-500">
+                  </div>
                 </div>
               </div>
-              <div class="flex gap-2">
-                <input id="in-${m.id}" type="number" placeholder="Min" min="1" max="240" class="w-24 bg-slate-900 border border-slate-700 rounded-xl text-center text-sm py-2 text-white">
-                <button onclick="occupyCustom('${m.id}')" class="flex-1 bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white text-xs font-bold rounded-xl py-2 transition">Avvia</button>
-              </div>
+
+              <button onclick="startCycle('${m.id}')" class="w-full bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white font-bold rounded-xl py-2.5 text-sm transition shadow-md">
+                ▶ Avvia Ciclo
+              </button>
             </div>
           `;
         }
       }).join('');
     }
 
-    function occupy(id, minutes) {
-      const busyUntil = Date.now() + (minutes * 60 * 1000);
+    function startCycle(id) {
+      const h = parseInt(document.getElementById(`hours-${id}`).value) || 0;
+      const m = parseInt(document.getElementById(`mins-${id}`).value) || 0;
+
+      const totalMinutes = (h * 60) + m;
+
+      if (totalMinutes <= 0) {
+        alert("Inserisci almeno qualche minuto per avviare il ciclo!");
+        return;
+      }
+
+      const busyUntil = Date.now() + (totalMinutes * 60 * 1000);
       db.ref(`machines/${id}`).set({
         busyUntil: busyUntil,
         status: "busy"
       });
     }
 
-    function occupyCustom(id) {
-      const val = parseInt(document.getElementById(`in-${id}`).value);
-      if (val && val > 0) occupy(id, val);
-    }
-
     async function requestNotification(id) {
       OneSignalDeferred.push(async function(OneSignal) {
         await OneSignal.Slidedown.promptPush();
         await OneSignal.User.addTag(`waiting_${id}`, "true");
-        alert(`Fatto! Riceverai una notifica sul dispositivo appena ${id} finisce.`);
+        alert(`Fatto! Riceverai una notifica sul tuo dispositivo appena ${id} finisce.`);
       });
     }
   </script>
