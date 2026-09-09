@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Stato Lavanderia</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.onesignal.com/sdks/web/v16/OneSignalSDK.page.js" defer></script>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
+</head>
+<body class="bg-slate-900 text-slate-100 min-h-screen p-4 sm:p-6 font-sans">
+  <div class="max-w-4xl mx-auto">
+    <header class="text-center mb-8">
+      <h1 class="text-3xl font-extrabold tracking-tight text-white mb-2">🧺 Stato Lavanderia</h1>
+      <p class="text-slate-400 text-sm">Aggiornamento in tempo reale • Clicca per occupare o ricevere un avviso a fine ciclo</p>
+    </header>
+
+    <div id="grid" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5"></div>
+  </div>
+
+  <script>
+    // --- INCOLLA QUI I TUOI DATI ---
+    const FIREBASE_DB_URL = "https://lavanderia-preziosina-default-rtdb.europe-west1.firebasedatabase.app/";
+    const ONESIGNAL_ID = "517fc901-ec72-43cd-8560-976c7fe9e7d9";
+
+    firebase.initializeApp({ databaseURL: FIREBASE_DB_URL });
+    const db = firebase.database();
+
+    window.OneSignalDeferred = window.OneSignalDeferred || [];
+    OneSignalDeferred.push(async function(OneSignal) {
+      await OneSignal.init({ appId: ONESIGNAL_ID });
+    });
+
+    const MACHINES = [
+      { id: "L1", name: "Lavatrice 1" },
+      { id: "L2", name: "Lavatrice 2" },
+      { id: "L3", name: "Lavatrice 3" },
+      { id: "A1", name: "Asciugatrice 1" },
+      { id: "A2", name: "Asciugatrice 2" },
+      { id: "A3", name: "Asciugatrice 3" }
+    ];
+
+    let state = {};
+
+    db.ref("machines").on("value", (snapshot) => {
+      state = snapshot.val() || {};
+      render();
+    });
+
+    setInterval(render, 1000);
+
+    function render() {
+      const container = document.getElementById("grid");
+      const now = Date.now();
+
+      container.innerHTML = MACHINES.map(m => {
+        const data = state[m.id] || { busyUntil: 0 };
+        const isBusy = data.busyUntil > now;
+        const remainingSec = Math.max(0, Math.floor((data.busyUntil - now) / 1000));
+        const min = Math.floor(remainingSec / 60);
+        const sec = remainingSec % 60;
+
+        if (isBusy) {
+          return `
+            <div class="bg-slate-800 border-2 border-amber-500/70 rounded-2xl p-5 shadow-lg flex flex-col justify-between">
+              <div>
+                <div class="flex justify-between items-center mb-2">
+                  <span class="text-2xl font-black text-amber-400">${m.id}</span>
+                  <span class="px-2.5 py-1 text-xs font-semibold uppercase bg-amber-500/20 text-amber-300 rounded-full">Occupata</span>
+                </div>
+                <p class="text-slate-300 text-sm mb-3">${m.name}</p>
+                <div class="text-center py-3 bg-slate-900/70 rounded-xl mb-4">
+                  <span class="text-3xl font-mono font-bold text-white">${min}:${sec < 10 ? '0' : ''}${sec}</span>
+                  <span class="text-xs text-slate-400 block mt-0.5">tempo residuo</span>
+                </div>
+              </div>
+              <button onclick="requestNotification('${m.id}')" class="w-full py-2.5 px-3 bg-amber-600 hover:bg-amber-500 active:scale-95 text-white font-medium rounded-xl text-sm transition">
+                🔔 Avvisami quando termina
+              </button>
+            </div>
+          `;
+        } else {
+          return `
+            <div class="bg-slate-800 border-2 border-emerald-500/40 rounded-2xl p-5 shadow-lg flex flex-col justify-between">
+              <div>
+                <div class="flex justify-between items-center mb-2">
+                  <span class="text-2xl font-black text-emerald-400">${m.id}</span>
+                  <span class="px-2.5 py-1 text-xs font-semibold uppercase bg-emerald-500/20 text-emerald-300 rounded-full">Libera</span>
+                </div>
+                <p class="text-slate-300 text-sm mb-3">${m.name}</p>
+                
+                <p class="text-xs text-slate-400 mb-1.5 font-medium">Avvio rapido:</p>
+                <div class="grid grid-cols-3 gap-2 mb-3">
+                  <button onclick="occupy('${m.id}', 30)" class="py-2 bg-slate-700 hover:bg-emerald-600 active:scale-95 rounded-lg text-xs font-bold transition">30m</button>
+                  <button onclick="occupy('${m.id}', 45)" class="py-2 bg-slate-700 hover:bg-emerald-600 active:scale-95 rounded-lg text-xs font-bold transition">45m</button>
+                  <button onclick="occupy('${m.id}', 60)" class="py-2 bg-slate-700 hover:bg-emerald-600 active:scale-95 rounded-lg text-xs font-bold transition">60m</button>
+                </div>
+              </div>
+              <div class="flex gap-2">
+                <input id="in-${m.id}" type="number" placeholder="Min" min="1" max="240" class="w-24 bg-slate-900 border border-slate-700 rounded-xl text-center text-sm py-2 text-white">
+                <button onclick="occupyCustom('${m.id}')" class="flex-1 bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white text-xs font-bold rounded-xl py-2 transition">Avvia</button>
+              </div>
+            </div>
+          `;
+        }
+      }).join('');
+    }
+
+    function occupy(id, minutes) {
+      const busyUntil = Date.now() + (minutes * 60 * 1000);
+      db.ref(`machines/${id}`).set({
+        busyUntil: busyUntil,
+        status: "busy"
+      });
+    }
+
+    function occupyCustom(id) {
+      const val = parseInt(document.getElementById(`in-${id}`).value);
+      if (val && val > 0) occupy(id, val);
+    }
+
+    async function requestNotification(id) {
+      OneSignalDeferred.push(async function(OneSignal) {
+        await OneSignal.Slidedown.promptPush();
+        await OneSignal.User.addTag(`waiting_${id}`, "true");
+        alert(`Fatto! Riceverai una notifica sul dispositivo appena ${id} finisce.`);
+      });
+    }
+  </script>
+</body>
+</html>
